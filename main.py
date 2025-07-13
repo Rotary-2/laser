@@ -20,6 +20,10 @@ second_rect_corners = [[0,0] for _ in range(4)]
 corner_centers = [[0,0] for _ in range(4)]
 area = 0
 data = ''
+corner_normals = [ [(0,0), (0,0)] for _ in range(4) ]  # 全局变量，4个角点的(n1,n2)
+corner_positions = [(0, 0)] * 4  # 保存当前四个角点的位置
+corner_dirs = [(0, 0)] * 4 
+d_pix = 0
 
 init_flag = False
 A4_flag = False
@@ -85,13 +89,21 @@ def calc_corner_centers(corners, tape_mm=18, a4_mm=(210, 297)):
     centroid = (cx, cy)
 
     centers = []
+    global corner_positions
+    global corner_normals
+    global corner_dirs            # 声明使用全局变量
+    
+    corner_positions = corners[:]  # 复制角点坐标
+    corner_normals = [ [(0,0), (0,0)] for _ in range(4) ]  # 重新初始化
     for i, A in enumerate(corners):
         B, C = corners[(i-1)%4], corners[(i+1)%4]
-        e1 = normalize((B[0]-A[0], B[1]-A[1]))
-        e2 = normalize((C[0]-A[0], C[1]-A[1]))
+        print("i={}, A={}, B={}, C={}".format(i, A, B, C))
+        e1 = normalize((B[1]-A[1], B[0]-A[0]))
+        e2 = normalize((C[1]-A[1], C[0]-A[0]))
         n1 = normalize(rot90(e1))
         n2 = normalize(rot90(e2))
-
+        corner_normals[i] = (n1, n2)
+   
         def offset_center(n1, n2):
             P1 = (A[0]+n1[0]*d_pix, A[1]-n1[1]*d_pix)
             P2 = (A[0]+n2[0]*d_pix, A[1]-n2[1]*d_pix)
@@ -99,12 +111,17 @@ def calc_corner_centers(corners, tape_mm=18, a4_mm=(210, 297)):
             dx, dy = P2[0]-P1[0], P2[1]-P1[1]
             t = (dx*(-e2[1]) - dy*(-e2[0])) / det
             return (P1[0]+e1[0]*t, P1[1]+e1[1]*t)
-
-        center = offset_center(n1, n2)
-        v1 = (center[0]-A[0], center[1]-A[1])
-        v2 = (centroid[0]-A[0], centroid[1]-A[1])
-        if v1[0]*v2[0] + v1[1]*v2[1] < 0:          # 说明交点朝外
-            center = offset_center((-n1[0], -n1[1]), (-n2[0], -n2[1]))
+    
+        vx, vy = normalize((n1[1] - n2[1], n1[0] - n2[0]))
+        corner_dirs[i] = (vx, vy) 
+        print("vx = {:.3f}, vy = {:.3f}".format(vx, vy))
+        center = (A[0] + 1.414 * vx * d_pix, A[1] + 1.414 * vy * d_pix)
+#        center = offset_center(n1, n2)
+        v1 = (center[1]-A[1], center[0]-A[0])
+        v2 = (centroid[1]-A[1], centroid[0]-A[0])
+        if v1[1]*v2[1] + v1[0]*v2[0] < 0:          # 说明交点朝外
+            center = offset_center((-n1[1], -n1[0]), (-n2[1], -n2[0]))
+            print("交点朝外")
         centers.append(center)
     return [list(c) for c in centers]    
 
@@ -143,6 +160,23 @@ while(True):
                 inner_flag = False
                 msg = "A4收到\r\n"
                 uart.write(msg.encode())
+                
+    for i in range(4):
+        A = corner_positions[i]
+        n1, n2 = corner_normals[i]
+        img.draw_arrow(int(A[0]), int(A[1]),
+                       int(A[0] + n1[0]*20), int(A[1] - n1[1]*20),
+                       color=(255, 0, 0))
+        img.draw_arrow(int(A[0]), int(A[1]),
+                       int(A[0] + n2[0]*20), int(A[1] - n2[1]*20),
+                       color=(0, 255, 0))
+    for i in range(4):
+        A = corner_positions[i]  # 当前角点位置
+        vx, vy = corner_dirs[i]  # 当前方向向量
+        x0, y0 = int(A[0]), int(A[1])
+        x1 = int(A[0] + vx * 25)  # 放大25倍可视化
+        y1 = int(A[1] + vy * 25)
+        img.draw_arrow(x0, y0, x1, y1, color=(255, 0, 0))
 
     if init_flag:
         img.draw_circle(45, 7, 1, (0, 0, 255), thickness=2)
@@ -150,7 +184,7 @@ while(True):
         img.draw_circle(40, 233, 1, (0, 0, 255), thickness=2)
         img.draw_circle(275, 233, 1, (0, 0, 255), thickness=2)
     if A4_flag:
-        img = sensor.snapshot().lens_corr(strength = 1.2, zoom = 1.55)
+#        img = sensor.snapshot().lens_corr(strength = 1.2, zoom = 1.55)
         img.laplacian(1, sharpen=True)
         if not outer_flag:
             rects = img.find_rects(threshold=5000, x_gradient=20, y_gradient=20)
@@ -170,7 +204,7 @@ while(True):
                 uart.write("count = {}\r\n".format(count).encode())
             else:
                 for p in corner_centers:
-                    img.draw_circle(int(p[0]), int(p[1]), 5, color=128)  # 画出角带中心点
+                    img.draw_circle(int(p[0]), int(p[1]), 2, color=128)  # 画出角带中心点
 
             if count >= 3 and not A4_finish:
                 corner_centers = calc_corner_centers(outer_rect_corners)
@@ -178,7 +212,7 @@ while(True):
                 uart.write(msg.encode())
 
                 for p in corner_centers:
-                    img.draw_circle(int(p[0]), int(p[1]), 5, color=128)  # 画出角带中心点
+                    img.draw_circle(int(p[0]), int(p[1]), 2, color=128)  # 画出角带中心点
                 A4_finish = True
 
         if inner_flag:
