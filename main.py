@@ -92,12 +92,12 @@ def calc_corner_centers(corners, tape_mm=22, a4_mm=(210, 297)):
         e2 = normalize((C[1]-A[1], C[0]-A[0]))
         n1 = normalize(rot90(e1))
         n2 = normalize(rot90(e2))
-    
+
         vx, vy = normalize((n1[1] - n2[1], n1[0] - n2[0]))
         print("vx = {:.3f}, vy = {:.3f}".format(vx, vy))
         center = (A[0] + 1.414 * vx * d_pix, A[1] + 1.414 * vy * d_pix)
         centers.append(center)
-    return [list(c) for c in centers]    
+    return [list(c) for c in centers]
 
 while(True):
     img = sensor.snapshot().lens_corr(strength = 1.2, zoom = 1.55)
@@ -134,6 +134,15 @@ while(True):
                 inner_flag = False
                 msg = "A4收到\r\n"
                 uart.write(msg.encode())
+                
+            elif data == "A4End":
+                A4_flag = False
+                A4_finish = False
+                init_flag = False
+                outer_flag = False
+                inner_flag = False
+                msg = "A4End收到\r\n"
+                uart.write(msg.encode())
 
     if init_flag:
         img.draw_circle(45, 7, 1, (0, 0, 255), thickness=2)
@@ -157,7 +166,7 @@ while(True):
                 img.draw_circle(p[0], p[1], 3, color=255)
             if not A4_finish:
                 count += 1
-                uart.write("count = {}\r\n".format(count).encode())
+#                uart.write("count = {}\r\n".format(count).encode())
             else:
                 for p in corner_centers:
                     img.draw_circle(int(p[0]), int(p[1]), 2, color=128)  # 画出角带中心点
@@ -191,26 +200,26 @@ while(True):
                 top = sorted(corners[:2], key=lambda p: p[0])   # top-left, top-right
                 bottom = sorted(corners[2:], key=lambda p: p[0]) # bottom-left, bottom-right
                 return [top[0], top[1], bottom[1], bottom[0]]  # 左上，右上，右下，左下
-            
+
             outer_sorted = sort_corners(outer_rect_corners)
             inner_sorted = sort_corners(inner_rect_corners)
-            
+
             corner_centers_list = []
             for i in range(4):
                 x_out, y_out = outer_sorted[i]
                 x_in, y_in = inner_sorted[i]
                 mid_x = (x_out + x_in) / 2
                 mid_y = (y_out + y_in) / 2
-            
+
                 corner_centers[i][0] = mid_x
                 corner_centers[i][1] = mid_y
                 corner_centers_list.append([round(mid_x, 4), round(mid_y, 4)])
-                img.draw_cross(int(mid_x), int(mid_y), color=100)                
-            
+                img.draw_cross(int(mid_x), int(mid_y), color=100)
+
             msg = "corner_centers: {}\r\n".format(corner_centers_list)
             uart.write(msg.encode())
-                
-                
+
+
             A4_finish = True
 
         if not rects or A4_finish:
